@@ -201,7 +201,6 @@ class PromptMixin(object):
         Call self.interact() after printing a prompt.
         """
 
-        oldecho = self.getecho()
         if echo is not None:
             self.setecho(echo)
 
@@ -228,8 +227,6 @@ class PromptMixin(object):
             # Our job is done, cleanup and getout.
             if binmixin:
                 self.restoremode()
-            if echo is not None and echo != oldecho:
-                self.setecho(oldecho)
             return
 
         self._check_target(exitwithprogram)
