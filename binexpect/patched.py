@@ -4,6 +4,9 @@ import os
 import pty
 import sys
 
+import io
+import termios
+
 from pexpect import spawn
 from pexpect.fdpexpect import fdspawn
 
@@ -42,6 +45,27 @@ class ttyspawn(fdspawn):  # NOQA: N801
         fdspawn.__init__(self, self.master, args, timeout,
                          maxread, searchwindowsize, logfile)
 
+        readf = io.open(self.child_fd, 'rb', buffering=0)
+        writef = io.open(self.child_fd, 'wb', buffering=0, closefd=False)
+        self.fileobj = io.BufferedRWPair(readf, writef)
+        try:
+            from termios import VEOF, VINTR
+            intr = ord(termios.tcgetattr(self.child_fd)[6][VINTR])
+            eof = ord(termios.tcgetattr(self.child_fd)[6][VEOF])
+        except (ImportError, OSError, IOError, ValueError, termios.error):
+            # unless the controlling process is also not a terminal,
+            # such as cron(1), or when stdin and stdout are both closed.
+            # Fall-back to using CEOF and CINTR. There
+            try:
+                from termios import CEOF, CINTR
+                (intr, eof) = (CINTR, CEOF)
+            except ImportError:
+                #             ^C, ^D
+                (intr, eof) = (3, 4)
+
+        self._INTR = bytes([intr])
+        self._EOF = bytes([eof])
+
     def ttyname(self):
         """Return the name of the underlying TTY."""
         return os.ttyname(self.slave)
@@ -52,3 +76,8 @@ class ttyspawn(fdspawn):  # NOQA: N801
             "ttyspawn.setecho() is a no-op, echo is never fed back "
             "to pexpect but it is always kept on in the TTY.\r\n"
         )
+
+    def sendeof(self):
+        """Sends EOF to spawned tty"""
+        self.fileobj.write(self._EOF)
+        self.fileobj.flush()
