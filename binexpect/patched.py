@@ -52,7 +52,7 @@ class ttyspawn(fdspawn):  # NOQA: N801
             from termios import VEOF, VINTR
             intr = ord(termios.tcgetattr(self.child_fd)[6][VINTR])
             eof = ord(termios.tcgetattr(self.child_fd)[6][VEOF])
-        except (ImportError, OSError, IOError, ValueError, termios.error)
+        except (ImportError, OSError, IOError, ValueError, termios.error):
             # unless the controlling process is also not a terminal,
             # such as cron(1), or when stdin and stdout are both closed.
             # Fall-back to using CEOF and CINTR. There
