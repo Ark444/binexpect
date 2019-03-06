@@ -3,8 +3,6 @@
 import os
 import pty
 import sys
-
-import io
 import termios
 
 from pexpect import spawn
@@ -45,9 +43,7 @@ class ttyspawn(fdspawn):  # NOQA: N801
         fdspawn.__init__(self, self.master, args, timeout,
                          maxread, searchwindowsize, logfile)
 
-        readf = io.open(self.child_fd, 'rb', buffering=0)
-        writef = io.open(self.child_fd, 'wb', buffering=0, closefd=False)
-        self.fileobj = io.BufferedRWPair(readf, writef)
+        # get the EOF and INTR char
         try:
             from termios import VEOF, VINTR
             intr = ord(termios.tcgetattr(self.child_fd)[6][VINTR])
@@ -62,7 +58,6 @@ class ttyspawn(fdspawn):  # NOQA: N801
             except ImportError:
                 #             ^C, ^D
                 (intr, eof) = (3, 4)
-
         self._INTR = bytes([intr])
         self._EOF = bytes([eof])
 
@@ -79,5 +74,5 @@ class ttyspawn(fdspawn):  # NOQA: N801
 
     def sendeof(self):
         """Sends EOF to spawned tty"""
-        self.fileobj.write(self._EOF)
-        self.fileobj.flush()
+        self.send(self._EOF)
+
