@@ -2,14 +2,15 @@
 
 import os
 import pty
+import tty
 import sys
 import termios
 
 from pexpect import spawn
 from pexpect.fdpexpect import fdspawn
+from pexpect.utils import poll_ignore_interrupts, select_ignore_interrupts
 
 from binexpect.mixins import BinMixin, PromptMixin
-
 
 # Monkey patch spawn & fdspawn to add bin support.
 spawn = type("spawn", (spawn, BinMixin, PromptMixin), {})
@@ -42,6 +43,9 @@ class ttyspawn(fdspawn):  # NOQA: N801
             sys.stderr.write("New tty spawned at %s\r\n" % self.ttyname())
         fdspawn.__init__(self, self.master, args, timeout,
                          maxread, searchwindowsize, logfile)
+
+        self.STDIN_FILENO = pty.STDIN_FILENO
+        self.STDOUT_FILENO = pty.STDOUT_FILENO
 
         # get the EOF and INTR char
         try:
@@ -76,3 +80,73 @@ class ttyspawn(fdspawn):  # NOQA: N801
         """Sends EOF to spawned tty"""
         self.send(self._EOF)
 
+
+    def interact(self, escape_character=chr(29),
+            input_filter=None, output_filter=None):
+        """This methods transfers STDIN and STDOUT to the spawned tty"""
+
+        self.write_to_stdout(self.buffer)
+        self.stdout.flush()
+        self._buffer = self.buffer_type()
+        mode = tty.tcgetattr(self.STDIN_FILENO)
+        tty.setraw(self.STDIN_FILENO)
+
+        if escape_character is not None:
+            escape_character = escape_character.encode('latin-1')
+        try:
+            self.__interact_copy(escape_character, input_filter, output_filter)
+        finally:
+            tty.tcsetattr(self.STDIN_FILENO, tty.TCSAFLUSH, mode)
+
+    def __interact_writen(self, fd, data):
+        '''This is used by the interact() method.
+        '''
+
+        while data != b'' and self.isalive():
+            n = os.write(fd, data)
+            data = data[n:]
+
+    def __interact_read(self, fd):
+        '''This is used by the interact() method.
+        '''
+
+        return os.read(fd, 1000)
+
+    def __interact_copy(self, escape_character=None,
+            input_filter=None, output_filter=None):
+        '''This is used by the interact() method.
+        '''
+
+        while self.isalive():
+            if self.use_poll:
+                r = poll_ignore_interrupts([self.child_fd, self.STDIN_FILENO])
+            else:
+                r, w, e = select_ignore_interrupts(
+                    [self.child_fd, self.STDIN_FILENO], [], []
+                )
+            if self.child_fd in r:
+                try:
+                    data = self.__interact_read(self.child_fd)
+                except OSError as err:
+                    if err.args[0] == errno.EIO:
+                        # Linux-style EOF
+                        break
+                    raise
+                if data == b'':
+                    # BSD-style EOF
+                    break
+                if output_filter:
+                    data = output_filter(data)
+                self._log(data, 'read')
+                os.write(self.STDOUT_FILENO, data)
+            if self.STDIN_FILENO in r:
+                data = self.__interact_read(self.STDIN_FILENO)
+                if input_filter:
+                    data = input_filter(data)
+                i = -1
+                if escape_character is not None:
+                    i = data.rfind(escape_character)
+                if i != -1:
+                    self.__interact_writen(self.child_fd, data[:i])
+                    break
+                self.__interact_writen(self.child_fd, data)
