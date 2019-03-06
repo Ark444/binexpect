@@ -204,8 +204,7 @@ class Target(object):  # NOQA: N801
                     f.write("%s\x00%s" % (target.ttyname(), "\x00".join(args)))
             if self.args.gdb:
                 spawn_terminal(
-                    self.args.terminal, "gdb", "-q", binary,
-                    "--tty", target.ttyname()
+                    self.args.terminal, "gdb -q %s --tty %s" % (binary, target.ttyname())
                 )
         else:
             target = spawn(
